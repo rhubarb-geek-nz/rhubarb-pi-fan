@@ -17,7 +17,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>
 #
-# $Id: package.sh 38 2021-04-21 22:30:11Z rhubarb-geek-nz $
+# $Id: package.sh 39 2021-04-24 12:52:41Z rhubarb-geek-nz $
 #
 
 svnVer()
@@ -26,7 +26,7 @@ svnVer()
 	do
 		echo "$C"
 	done << EOF
-$Id: package.sh 38 2021-04-21 22:30:11Z rhubarb-geek-nz $
+$Id: package.sh 39 2021-04-24 12:52:41Z rhubarb-geek-nz $
 EOF
 }
 
@@ -50,6 +50,7 @@ trap cleanup 0
 VERSION=`svnVer`
 VERSION="1.0.$VERSION"
 PKGNAME=rhubarb-pi-fan
+FANPIN=18
 
 mkdir -p root/DEBIAN
 
@@ -81,17 +82,17 @@ chmod +x root/DEBIAN/post*
 	cd root
 	mkdir -p opt/RHBpifan/etc opt/RHBpifan/bin
 
-	cat >  opt/RHBpifan/bin/rhubarb-pi-fan.sh << 'EOF'
+	cat >  opt/RHBpifan/bin/rhubarb-pi-fan.sh << EOF
 #!/bin/sh -e
-gpio -g mode 14 out
-TEMP=`cat /sys/class/thermal/thermal_zone0/temp`
-if test "$TEMP" -gt 70000
+gpio -g mode $FANPIN out
+TEMP=\$(cat /sys/class/thermal/thermal_zone0/temp)
+if test "\$TEMP" -gt 70000
 then
-	gpio -g write 14 1
+	gpio -g write $FANPIN 1
 else
-	if test "$TEMP" -lt 65000
+	if test "\$TEMP" -lt 65000
 	then
-		gpio -g write 14 0
+		gpio -g write $FANPIN 0
 	fi
 fi
 EOF
@@ -138,13 +139,14 @@ Priority: extra
 Depends: wiringpi (>= 2.52)
 Vcs-Svn: https://svn.code.sf.net/p/rhubarb-pi/code/trunk/pkg/rhubarb-pi-fan
 Description: Fan Control
- Fan Control on GPIO 14
+ Fan Control on GPIO $FANPIN
  .
 EOF
 
 if dpkg-deb --root-owner-group --build root "$PKGNAME"_"$VERSION"_all.deb
 then
 	ls -ld "$PKGNAME"_"$VERSION"_all.deb
+	dpkg-deb -c  "$PKGNAME"_"$VERSION"_all.deb
 fi
 
 cleanup
@@ -173,7 +175,7 @@ chmod +x  root/usr/local/libexec/rhubarb-pi-fan
 ADD=/root/rhubarb-pi-fan.pkg.add
 DEL=/root/rhubarb-pi-fan.pkg.del
 RCSL=/etc/rc.securelevel
-GPIOSET="/usr/sbin/gpioctl gpio0 18 set out fan"
+GPIOSET="/usr/sbin/gpioctl gpio0 $FANPIN set out fan"
 
 cat > meta/CONTENTS <<EOF
 usr/local/libexec/rhubarb-pi-fan

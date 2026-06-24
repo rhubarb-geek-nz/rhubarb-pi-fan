@@ -13,7 +13,7 @@ This implements a systemd timer service to monitor the temperature and control t
 This implements a crobjob to monitor the temperature and control the fan
 The GPIO device is set up in /etc/rc.securelevel and named as "fan"
 ```
-# cat /etc/rc.securelevel                                                                                                                                                                                                   
+# cat /etc/rc.securelevel 
 #!/bin/sh
 /usr/sbin/gpioctl gpio0 18 set out fan
 ```
@@ -22,4 +22,3 @@ It adds a cronjob
 ```
 *	*	*	*	*	/usr/local/libexec/rhubarb-pi-fan
 ```
-
