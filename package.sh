@@ -17,22 +17,12 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>
 #
-# $Id: package.sh 39 2021-04-24 12:52:41Z rhubarb-geek-nz $
+# $Id: package.sh 55 2021-05-20 05:48:32Z rhubarb-geek-nz $
 #
-
-svnVer()
-{
-	while read A B C D
-	do
-		echo "$C"
-	done << EOF
-$Id: package.sh 39 2021-04-24 12:52:41Z rhubarb-geek-nz $
-EOF
-}
 
 cleanup()
 {
-	rm -rf root meta
+	rm -rf root meta rpms rpm.spec
 }
 
 getSize()
@@ -47,8 +37,10 @@ cleanup
 
 trap cleanup 0
 
-VERSION=`svnVer`
-VERSION="1.0.$VERSION"
+THIS="$0"
+svn log -q "$THIS" > /dev/null
+SVNVERS=$(echo $(svn log -q "$THIS" | grep -v "\----------" | wc -l))
+VERSION="1.0.$SVNVERS"
 PKGNAME=rhubarb-pi-fan
 FANPIN=18
 
@@ -202,3 +194,128 @@ if pkg_create -A "*" \
 then
 	ls -ld $PKGNAME-$VERSION.tgz
 fi
+
+cleanup
+
+if rpmbuild --version
+then
+	RELEASE=1
+
+	(
+		set -e
+		mkdir root
+		cd root
+		mkdir -p opt/RHBpifan/etc opt/RHBpifan/bin
+
+		cat >  opt/RHBpifan/bin/rhubarb-pi-fan.sh << EOF
+#!/bin/sh -e
+TEMP=\$(cat /sys/class/thermal/thermal_zone0/temp)
+if test "\$TEMP" -gt 70000
+then
+	gpioset gpiochip0 $FANPIN=1
+else
+	if test "\$TEMP" -lt 65000
+	then
+		gpioset gpiochip0 $FANPIN=0
+	fi
+fi
+EOF
+
+	cat >  opt/RHBpifan/etc/rhubarb-pi-fan.service << 'EOF'
+[Unit]
+Description=Monitors the temperature
+Wants=rhubarb-pi-fan.timer
+
+[Service]
+Type=oneshot
+ExecStart=/opt/RHBpifan/bin/rhubarb-pi-fan.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+	cat >  opt/RHBpifan/etc/rhubarb-pi-fan.timer << 'EOF'
+[Unit]
+Description=Monitors the temperature
+Requires=rhubarb-pi-fan.service
+
+[Timer]
+Unit=rhubarb-pi-fan.service
+OnCalendar=*-*-* *:*:00
+
+[Install]
+WantedBy=timers.target
+EOF
+	
+		chmod +x opt/RHBpifan/bin/rhubarb-pi-fan.sh
+	)
+
+	(
+		cat <<EOF
+Summary: Fan control
+Name: $PKGNAME
+Version: $VERSION
+Release: $RELEASE
+Group: Applications/System
+License: GPL
+Requires: libgpiod-utils
+BuildArch: noarch
+Prefix: /
+%description
+Fan control for gpio pin $FANPIN
+
+%post
+echo FAN POST "\$1"
+if test "\$1" -eq 1
+then
+	(
+		set -e
+		echo ADD FAN ON PIN $FANPIN
+		if test ! -h /etc/systemd/system/rhubarb-pi-fan.service
+		then
+			ln -s /opt/RHBpifan/etc/rhubarb-pi-fan.service /etc/systemd/system/rhubarb-pi-fan.service
+		fi
+		if test ! -h /etc/systemd/system/rhubarb-pi-fan.timer
+		then
+			ln -s /opt/RHBpifan/etc/rhubarb-pi-fan.timer /etc/systemd/system/rhubarb-pi-fan.timer
+		fi
+		if test ! -h /etc/systemd/system/timers.target.wants/rhubarb-pi-fan.timer
+		then
+			ln -s /opt/RHBpifan/etc/rhubarb-pi-fan.timer /etc/systemd/system/timers.target.wants/rhubarb-pi-fan.timer
+		fi
+	)
+fi
+%postun
+echo FAN POSTUN "\$1"
+if test "\$1" -eq 0
+then
+	(
+		set -e
+		echo REMOVE FAN ON PIN $FANPIN
+		rm -rf /etc/systemd/system/rhubarb-pi-fan.service /etc/systemd/system/timers.target.wants/rhubarb-pi-fan.timer /etc/systemd/system/rhubarb-pi-fan.timer
+	)
+fi
+%files
+%defattr(-,root,root)
+EOF
+
+		cd root
+		find opt -type f | while read N
+		do
+			echo "/$N"
+		done
+
+		cat <<EOF
+%clean
+EOF
+	) > rpm.spec
+
+	PWD=$(pwd)
+	rpmbuild --buildroot "$PWD/root" --define "_rpmdir $PWD/rpms" -bb "$PWD/rpm.spec"
+
+	find rpms -type f -name "*.rpm" | while read N
+	do
+		mv "$N" .
+	done
+fi
+
